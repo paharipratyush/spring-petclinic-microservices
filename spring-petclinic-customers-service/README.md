@@ -1,2 +1,4 @@
-# test Mon May 18 16:23:49 UTC 2026
+# customers-service
+
+Handles owner and pet data for the Spring Petclinic platform.
 
