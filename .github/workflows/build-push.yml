@@ -3,20 +3,20 @@
 # CI pipeline for Spring Petclinic Microservices.
 # Triggered on push to main. Detects which of the 8 service directories changed,
 # builds ARM64 Docker images for changed services only, scans with Trivy
-# (CRITICAL CVEs fail the build — the scan gates the push), pushes to ECR (dev),
+# (CRITICAL CVEs fail the build -- the scan gates the push), pushes to ECR dev,
 # then dispatches an event to the platform repo so update-image-tags.yml can
 # commit the new tag to helm-values/ and ArgoCD picks up the change.
 #
-# Prerequisites — GitHub repository SECRETS:
-#   AWS_ROLE_ARN        — OIDC IAM role ARN (output of: terraform output github_actions_role_arn)
-#   PLATFORM_REPO_TOKEN — GitHub PAT with contents:write on the platform repo (create manually)
+# Prerequisites -- GitHub Secrets:
+#   AWS_ROLE_ARN        -- OIDC IAM role ARN (terraform output github_actions_role_arn)
+#   PLATFORM_REPO_TOKEN -- GitHub PAT with contents:write on the platform repo
 #
-# Prerequisites — GitHub repository VARIABLES:
-#   AWS_REGION      — eu-central-1
-#   AWS_ACCOUNT_ID  — <your-aws-account-id>
-#   PLATFORM_REPO   — paharipratyush/petclinic-platform
+# Prerequisites -- GitHub Variables:
+#   AWS_REGION      -- eu-central-1
+#   AWS_ACCOUNT_ID  -- your-aws-account-id
+#   PLATFORM_REPO   -- paharipratyush/petclinic-platform
 
-name: Build and Push Docker Images
+name: CI - Build and Push
 
 on:
   push:
@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 jobs:
-  # ── Job 1: Detect which service directories changed ───────────────────────
+  # ---- Job 1: Detect which service directories changed ----------------------
   detect-changes:
     name: Detect changed services
     runs-on: ubuntu-latest
@@ -80,43 +80,128 @@ jobs:
           echo "sha=${SHA}" >> $GITHUB_OUTPUT
 
           if [ ${#services[@]} -eq 0 ]; then
-            echo "No service directories changed — skipping build."
+            echo "No service directories changed -- skipping build."
             echo "has-changes=false" >> $GITHUB_OUTPUT
             echo "matrix=[]"        >> $GITHUB_OUTPUT
             echo "services="        >> $GITHUB_OUTPUT
           else
             MATRIX=$(printf '"%s"\n' "${services[@]}" | jq -sc .)
-            echo "matrix=${MATRIX}"          >> $GITHUB_OUTPUT
-            echo "has-changes=true"          >> $GITHUB_OUTPUT
-            echo "services=${services[*]}"   >> $GITHUB_OUTPUT
+            echo "matrix=${MATRIX}"        >> $GITHUB_OUTPUT
+            echo "has-changes=true"        >> $GITHUB_OUTPUT
+            echo "services=${services[*]}" >> $GITHUB_OUTPUT
             echo "Changed services (${#services[@]}): ${services[*]}"
           fi
 
-  # ── Job 2: Build, scan, push (one matrix entry per changed service) ────────
-  # Each service runs in parallel via the matrix strategy.
-  # fail-fast: false ensures one failing service does not cancel others.
-  # The reusable workflow gates every push on a CRITICAL Trivy scan.
+  # ---- Job 2: Build, scan, push (one matrix entry per changed service) ------
+  # Each service runs in parallel. fail-fast: false lets one failure not cancel
+  # the other services. CRITICAL Trivy findings gate the push -- no CRITICAL
+  # CVEs means no push for that service.
   build:
     name: Build ${{ matrix.service }}
     needs: detect-changes
     if: needs.detect-changes.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         service: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
       fail-fast: false
-    uses: ./.github/workflows/reusable/ecr-build-push.yml
-    with:
-      service:        ${{ matrix.service }}
-      sha:            ${{ needs.detect-changes.outputs.sha }}
-      aws-region:     ${{ vars.AWS_REGION }}
-      aws-account-id: ${{ vars.AWS_ACCOUNT_ID }}
-    secrets: inherit
+    env:
+      MAVEN_MODULE: spring-petclinic-${{ matrix.service }}
+      SOURCE_IMAGE: springcommunity/spring-petclinic-${{ matrix.service }}
+      TARGET_IMAGE: >-
+        ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/petclinic-dev/${{ matrix.service }}:${{ needs.detect-changes.outputs.sha }}
 
-  # ── Job 3: Notify platform repo ───────────────────────────────────────────
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Set up QEMU (ARM64 emulation)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          region: ${{ vars.AWS_REGION }}
+
+      - name: Build Docker image (ARM64) with Maven
+        run: |
+          ./mvnw clean install \
+            -P buildDocker \
+            -Dcontainer.platform="linux/arm64" \
+            -pl "${{ env.MAVEN_MODULE }}" -am \
+            --no-transfer-progress \
+            --batch-mode
+
+      - name: Trivy scan - CRITICAL (gate)
+        id: trivy-critical
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ env.SOURCE_IMAGE }}
+          format: table
+          output: trivy-critical-${{ matrix.service }}.txt
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
+          trivyignore: .trivyignore
+
+      - name: Trivy scan - HIGH (informational)
+        if: always()
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ env.SOURCE_IMAGE }}
+          format: table
+          output: trivy-high-${{ matrix.service }}.txt
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: HIGH
+          trivyignore: .trivyignore
+
+      - name: Upload Trivy scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.service }}-${{ needs.detect-changes.outputs.sha }}
+          path: |
+            trivy-critical-${{ matrix.service }}.txt
+            trivy-high-${{ matrix.service }}.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Tag image for ECR
+        run: docker tag "${{ env.SOURCE_IMAGE }}" "${{ env.TARGET_IMAGE }}"
+
+      - name: Push image to ECR
+        run: docker push "${{ env.TARGET_IMAGE }}"
+
+      - name: Logout from ECR
+        if: always()
+        run: >-
+          docker logout
+          "${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+
+  # ---- Job 3: Notify platform repo ------------------------------------------
   # Fires only when ALL matrix build jobs succeeded. The repository_dispatch
-  # event triggers update-image-tags.yml in the platform repo, which commits
-  # the new image tag to helm-values/{service}.yaml for each changed service.
-  # ArgoCD detects the commit and deploys (dev: auto-sync, prod: manual approval).
+  # event triggers update-image-tags.yml in the platform repo which commits the
+  # new image tag to helm-values/{service}.yaml. ArgoCD detects the commit and
+  # deploys (dev: auto-sync, prod: manual approval).
   notify:
     name: Notify platform repo
     needs: [detect-changes, build]

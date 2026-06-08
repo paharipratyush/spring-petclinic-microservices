@@ -1,0 +1,55 @@
+# reusable/update-tags.yml
+#
+# Reusable workflow: fire a repository_dispatch event to the platform repo so
+# update-image-tags.yml can commit the new image tag to helm-values/ and ArgoCD
+# picks up the change.
+#
+# Called after a successful build-push run to trigger the GitOps tag update.
+#
+# Example call:
+#
+#   jobs:
+#     notify:
+#       uses: ./.github/workflows/reusable/update-tags.yml
+#       with:
+#         sha:      ${{ needs.detect-changes.outputs.sha }}
+#         services: ${{ needs.detect-changes.outputs.services }}
+#         platform-repo: ${{ vars.PLATFORM_REPO }}
+#       secrets:
+#         PLATFORM_REPO_TOKEN: ${{ secrets.PLATFORM_REPO_TOKEN }}
+
+name: Dispatch Tag Update (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: "7-character commit SHA that was built and pushed to ECR"
+        required: true
+        type: string
+      services:
+        description: "Space-separated list of services whose images were pushed"
+        required: true
+        type: string
+      platform-repo:
+        description: "Platform repo to dispatch the tag-update event to"
+        required: false
+        type: string
+        default: "paharipratyush/petclinic-platform"
+    secrets:
+      PLATFORM_REPO_TOKEN:
+        required: true
+        description: "GitHub PAT with contents:write on the platform repo"
+
+jobs:
+  dispatch:
+    name: Dispatch tag update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch app-image-built to platform repo
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PLATFORM_REPO_TOKEN }}
+          repository: ${{ inputs.platform-repo }}
+          event-type: app-image-built
+          client-payload: '{"sha":"${{ inputs.sha }}","services":"${{ inputs.services }}"}'
