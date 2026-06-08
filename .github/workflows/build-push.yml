@@ -120,10 +120,7 @@ jobs:
   notify:
     name: Notify platform repo
     needs: [detect-changes, build]
-    if: |
-      always() &&
-      needs.detect-changes.outputs.has-changes == 'true' &&
-      needs.build.result == 'success'
+    if: always() && needs.detect-changes.outputs.has-changes == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch app-image-built to platform repo
@@ -132,8 +129,4 @@ jobs:
           token: ${{ secrets.PLATFORM_REPO_TOKEN }}
           repository: ${{ vars.PLATFORM_REPO }}
           event-type: app-image-built
-          client-payload: |
-            {
-              "sha": "${{ needs.detect-changes.outputs.sha }}",
-              "services": "${{ needs.detect-changes.outputs.services }}"
-            }
+          client-payload: '{"sha":"${{ needs.detect-changes.outputs.sha }}","services":"${{ needs.detect-changes.outputs.services }}"}'
