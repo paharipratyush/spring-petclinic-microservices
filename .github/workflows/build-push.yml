@@ -2,18 +2,19 @@
 #
 # CI pipeline for Spring Petclinic Microservices.
 # Triggered on push to main. Detects which of the 8 service directories changed,
-# builds ARM64 Docker images for changed services only, scans with Trivy,
-# pushes to ECR (dev), then dispatches an event to the platform repo so
-# update-image-tags.yml can commit the new tag to helm-values/.
+# builds ARM64 Docker images for changed services only, scans with Trivy
+# (CRITICAL CVEs fail the build — the scan gates the push), pushes to ECR (dev),
+# then dispatches an event to the platform repo so update-image-tags.yml can
+# commit the new tag to helm-values/ and ArgoCD picks up the change.
 #
 # Prerequisites — GitHub repository SECRETS:
-#   AWS_ROLE_ARN        — OIDC IAM role ARN
-#   PLATFORM_REPO_TOKEN — GitHub PAT with contents:write on petclinic-infra
+#   AWS_ROLE_ARN        — OIDC IAM role ARN (output of: terraform output github_actions_role_arn)
+#   PLATFORM_REPO_TOKEN — GitHub PAT with contents:write on the platform repo (create manually)
 #
 # Prerequisites — GitHub repository VARIABLES:
-#   AWS_REGION      — ap-south-1
-#   AWS_ACCOUNT_ID  — 482352877891
-#   PLATFORM_REPO   — paharipratyush/petclinic-infra
+#   AWS_REGION      — eu-central-1
+#   AWS_ACCOUNT_ID  — <your-aws-account-id>
+#   PLATFORM_REPO   — paharipratyush/petclinic-platform
 
 name: Build and Push Docker Images
 
@@ -26,7 +27,7 @@ permissions:
   contents: read
 
 jobs:
-  # ── Job 1: Detect which services changed ──────────────────────────────────
+  # ── Job 1: Detect which service directories changed ───────────────────────
   detect-changes:
     name: Detect changed services
     runs-on: ubuntu-latest
@@ -62,7 +63,7 @@ jobs:
             admin-server:
               - 'spring-petclinic-admin-server/**'
 
-      - name: Build service matrix
+      - name: Build service matrix from changed services
         id: build-matrix
         run: |
           services=()
@@ -91,7 +92,10 @@ jobs:
             echo "Changed services (${#services[@]}): ${services[*]}"
           fi
 
-  # ── Job 2: Build, scan, push ───────────────────────────────────────────────
+  # ── Job 2: Build, scan, push (one matrix entry per changed service) ────────
+  # Each service runs in parallel via the matrix strategy.
+  # fail-fast: false ensures one failing service does not cancel others.
+  # The reusable workflow gates every push on a CRITICAL Trivy scan.
   build:
     name: Build ${{ matrix.service }}
     needs: detect-changes
@@ -100,7 +104,7 @@ jobs:
       matrix:
         service: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
       fail-fast: false
-    uses: ./.github/workflows/ecr-build-push.yml
+    uses: ./.github/workflows/reusable/ecr-build-push.yml
     with:
       service:        ${{ matrix.service }}
       sha:            ${{ needs.detect-changes.outputs.sha }}
@@ -109,6 +113,10 @@ jobs:
     secrets: inherit
 
   # ── Job 3: Notify platform repo ───────────────────────────────────────────
+  # Fires only when ALL matrix build jobs succeeded. The repository_dispatch
+  # event triggers update-image-tags.yml in the platform repo, which commits
+  # the new image tag to helm-values/{service}.yaml for each changed service.
+  # ArgoCD detects the commit and deploys (dev: auto-sync, prod: manual approval).
   notify:
     name: Notify platform repo
     needs: [detect-changes, build]

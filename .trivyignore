@@ -1,0 +1,17 @@
+# .trivyignore — Trivy CVE allowlist for Spring Petclinic Microservices
+#
+# Add CVE IDs here (one per line) to suppress known/accepted vulnerabilities
+# from the CI security gate in .github/workflows/reusable/ecr-build-push.yml.
+#
+# Format: one CVE ID per line, with an optional inline comment.
+#
+# Example:
+#   CVE-2023-12345  # eclipse-temurin:17 — no fix available; mitigated by network policy (review 2026-12-01)
+#
+# Each entry MUST document:
+#   1. Which package/image is affected
+#   2. Why it is accepted (no fix available, mitigated elsewhere, false positive)
+#   3. A review date — do not leave entries here indefinitely
+#
+# The CI pipeline fails on CRITICAL CVEs that are NOT listed here.
+# HIGH CVEs are always informational only (see trivy-high-*.txt artifacts).
