@@ -10,11 +10,8 @@
 # Prerequisites -- GitHub Secrets:
 #   AWS_ROLE_ARN        -- OIDC IAM role ARN (terraform output github_actions_role_arn)
 #   PLATFORM_REPO_TOKEN -- GitHub PAT with contents:write on the platform repo
-#
-# Prerequisites -- GitHub Variables:
-#   AWS_REGION      -- eu-central-1
-#   AWS_ACCOUNT_ID  -- your-aws-account-id
-#   PLATFORM_REPO   -- paharipratyush/petclinic-platform
+#   AWS_REGION          -- eu-central-1
+#   AWS_ACCOUNT_ID      -- your 12-digit AWS account ID
 
 name: CI - Build and Push
 
@@ -109,7 +106,7 @@ jobs:
       MAVEN_MODULE: spring-petclinic-${{ matrix.service }}
       SOURCE_IMAGE: springcommunity/spring-petclinic-${{ matrix.service }}
       TARGET_IMAGE: >-
-        ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/petclinic-dev/${{ matrix.service }}:${{ needs.detect-changes.outputs.sha }}
+        ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/petclinic-dev/${{ matrix.service }}:${{ needs.detect-changes.outputs.sha }}
 
     steps:
       - name: Checkout
@@ -134,12 +131,15 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
         with:
-          region: ${{ vars.AWS_REGION }}
+          region: ${{ secrets.AWS_REGION }}
+
+      - name: Pull latest base image (ensure patched layers)
+        run: docker pull --platform linux/arm64 eclipse-temurin:17
 
       - name: Build Docker image (ARM64) with Maven
         run: |
@@ -160,7 +160,13 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL
-          trivyignore: .trivyignore
+          trivyignores: .trivyignore
+
+      - name: Print CRITICAL scan results
+        if: always()
+        run: |
+          echo "=== Trivy CRITICAL results for ${{ matrix.service }} ==="
+          cat trivy-critical-${{ matrix.service }}.txt || echo "(no output file)"
 
       - name: Trivy scan - HIGH (informational)
         if: always()
@@ -172,7 +178,7 @@ jobs:
           exit-code: "0"
           ignore-unfixed: true
           severity: HIGH
-          trivyignore: .trivyignore
+          trivyignores: .trivyignore
 
       - name: Upload Trivy scan results
         if: always()
@@ -195,7 +201,7 @@ jobs:
         if: always()
         run: >-
           docker logout
-          "${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
   # ---- Job 3: Notify platform repo ------------------------------------------
   # Fires only when ALL matrix build jobs succeeded. The repository_dispatch
@@ -212,6 +218,6 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.PLATFORM_REPO_TOKEN }}
-          repository: ${{ vars.PLATFORM_REPO }}
+          repository: paharipratyush/petclinic-platform
           event-type: app-image-built
           client-payload: '{"sha":"${{ needs.detect-changes.outputs.sha }}","services":"${{ needs.detect-changes.outputs.services }}"}'

@@ -1,43 +1,24 @@
-# reusable/ecr-login.yml
-#
-# Reusable workflow: authenticate to AWS via OIDC and log in to Amazon ECR.
-# Returns the registry URL as an output.
-#
-# Use this when a workflow needs ECR access without a full build — for example,
-# a manual image push script or a future ad-hoc deployment workflow.
-#
-# Example call:
-#
-#   jobs:
-#     push:
-#       uses: ./.github/workflows/reusable/ecr-login.yml
-#       with:
-#         aws-account-id: ${{ vars.AWS_ACCOUNT_ID }}
-#       secrets:
-#         AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+# Reusable workflow: configure AWS OIDC credentials and log in to ECR.
+# Called by build-push.yml and ecr-build-push.yml to avoid duplicate auth steps.
 
-name: ECR Login (reusable)
+name: ECR Login (Reusable)
 
 on:
   workflow_call:
     inputs:
       aws-region:
-        description: "AWS region where ECR is hosted"
+        description: "AWS region where ECR repositories are hosted"
         required: false
         type: string
         default: "eu-central-1"
-      aws-account-id:
-        description: "AWS account ID for ECR registry URL"
-        required: true
-        type: string
     outputs:
       registry:
-        description: "ECR registry URL ({account}.dkr.ecr.{region}.amazonaws.com)"
+        description: "ECR registry base URL (account.dkr.ecr.region.amazonaws.com)"
         value: ${{ jobs.login.outputs.registry }}
     secrets:
       AWS_ROLE_ARN:
         required: true
-        description: "OIDC IAM role ARN to assume (from petclinic-github-actions-role Terraform output)"
+        description: "IAM role ARN for OIDC federation (GitHub Actions)"
 
 permissions:
   id-token: write
@@ -45,10 +26,10 @@ permissions:
 
 jobs:
   login:
+    name: Configure AWS + ECR login
     runs-on: ubuntu-latest
     outputs:
-      registry: ${{ steps.ecr-login.outputs.registry }}
-
+      registry: ${{ steps.ecr.outputs.registry }}
     steps:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -57,7 +38,7 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
 
       - name: Login to Amazon ECR
-        id: ecr-login
+        id: ecr
         uses: aws-actions/amazon-ecr-login@v2
         with:
           region: ${{ inputs.aws-region }}

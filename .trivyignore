@@ -1,30 +1,12 @@
-# .trivyignore — Trivy CVE allowlist for Spring Petclinic Microservices
+# Trivy CVE allowlist for Spring Petclinic Microservices
 #
-# Add CVE IDs here (one per line) to suppress known/accepted vulnerabilities
-# from the CI security gate in .github/workflows/reusable/ecr-build-push.yml.
+# Format: one CVE-ID per line with an optional comment.
+# Entries here are skipped during Trivy scans in CI (build-push.yml).
 #
-# Format: one CVE ID per line, with an optional inline comment.
+# Before adding a CVE to this file:
+#   1. Confirm the CVE is a false positive or has an accepted risk.
+#   2. Add a comment explaining why it is accepted and when to revisit.
+#   3. Review this file quarterly and remove entries for patched CVEs.
 #
 # Example:
-#   CVE-2023-12345  # eclipse-temurin:17 — no fix available; mitigated by network policy (review 2026-12-01)
-#
-# Each entry MUST document:
-#   1. Which package/image is affected
-#   2. Why it is accepted (no fix available, mitigated elsewhere, false positive)
-#   3. A review date — do not leave entries here indefinitely
-#
-# The CI pipeline fails on CRITICAL CVEs that are NOT listed here.
-# HIGH CVEs are always informational only (see trivy-high-*.txt artifacts).
-
-# ── Spring Boot / Tomcat dependency CVEs ─────────────────────────────────────
-# Package: org.apache.tomcat.embed:tomcat-embed-core (bundled via spring-boot 4.0.1)
-# Fix available: tomcat 11.0.22 (included in spring-boot 4.0.6)
-# Resolution: spring-boot dep bump to >=4.0.6 resolves all three (review 2026-09-09)
-CVE-2026-41293  # tomcat-embed-core: HTTP/2 request headers not sanitised
-CVE-2026-43512  # tomcat-embed-core: authentication bypass via coyote
-CVE-2026-43515  # tomcat-embed-core: improper authorization on multi-method routes
-
-# Package: org.springframework.boot:spring-boot 4.0.1
-# Fix available: 4.0.6 -- security bypass via ineffective sanitisation
-# Resolution: spring-boot dep bump to >=4.0.6 (review 2026-09-09)
-CVE-2026-40976  # spring-boot: security bypass due to ineffective sanitisation
+# CVE-2023-XXXXX  # false positive: affects feature not used in this project; revisit 2026-Q3

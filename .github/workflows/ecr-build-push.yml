@@ -20,7 +20,7 @@ on:
         description: "AWS region where ECR repositories are hosted"
         required: false
         type: string
-        default: "ap-south-1"
+        default: "eu-central-1"
       aws-account-id:
         description: "AWS account ID for ECR registry URL"
         required: true
@@ -71,6 +71,9 @@ jobs:
         with:
           region: ${{ inputs.aws-region }}
 
+      - name: Pull latest base image (ensure patched layers)
+        run: docker pull --platform linux/arm64 eclipse-temurin:17
+
       - name: Build Docker image (ARM64) with Maven
         run: |
           ./mvnw clean install \
@@ -80,15 +83,22 @@ jobs:
             --no-transfer-progress \
             --batch-mode
 
-      - name: Trivy scan — CRITICAL (informational)
+      - name: Trivy scan — CRITICAL (gate)
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: ${{ env.SOURCE_IMAGE }}
           format: table
           output: trivy-critical-${{ inputs.service }}.txt
-          exit-code: "0"
+          exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL
+          trivyignores: .trivyignore
+
+      - name: Print CRITICAL scan results
+        if: always()
+        run: |
+          echo "=== Trivy CRITICAL results for ${{ inputs.service }} ==="
+          cat trivy-critical-${{ inputs.service }}.txt || echo "(no output file)"
 
       - name: Trivy scan — HIGH (informational)
         if: always()
@@ -100,6 +110,7 @@ jobs:
           exit-code: "0"
           ignore-unfixed: true
           severity: HIGH
+          trivyignores: .trivyignore
 
       - name: Upload Trivy scan results
         if: always()
