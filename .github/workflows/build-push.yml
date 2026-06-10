@@ -125,6 +125,8 @@ jobs:
       SOURCE_IMAGE: springcommunity/spring-petclinic-${{ matrix.service }}
       TARGET_IMAGE: >-
         ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/petclinic-dev/${{ matrix.service }}:${{ needs.detect-changes.outputs.sha }}
+      TARGET_IMAGE_PROD: >-
+        ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/petclinic-prod/${{ matrix.service }}:${{ needs.detect-changes.outputs.sha }}
 
     steps:
       - name: Checkout
@@ -209,11 +211,17 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Tag image for ECR
+      - name: Tag image for dev ECR
         run: docker tag "${{ env.SOURCE_IMAGE }}" "${{ env.TARGET_IMAGE }}"
 
-      - name: Push image to ECR
+      - name: Tag image for prod ECR
+        run: docker tag "${{ env.SOURCE_IMAGE }}" "${{ env.TARGET_IMAGE_PROD }}"
+
+      - name: Push image to dev ECR
         run: docker push "${{ env.TARGET_IMAGE }}"
+
+      - name: Push image to prod ECR
+        run: docker push "${{ env.TARGET_IMAGE_PROD }}"
 
       - name: Logout from ECR
         if: always()
