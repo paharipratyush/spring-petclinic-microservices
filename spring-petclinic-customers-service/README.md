@@ -1,8 +1,6 @@
-# customers-service
+# Spring Petclinic Customers Service
 
-Handles owner and pet data for the Spring Petclinic platform.
+Manages owner and pet data for the Spring Petclinic microservices platform.
 
-Port: 8081 | Requires MySQL | Eureka-registered | Spring Boot 4.x
-
-
-
+Runs on port `8081`. Requires MySQL (RDS). Registers with Eureka for service discovery.
+Built with Spring Boot 4.0.6 and deployed to ARM64 (Graviton) EKS nodes.
