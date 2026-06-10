@@ -1,4 +1,7 @@
-# Updated Mon May 18 15:41:17 UTC 2026
-# CI test 2 Mon May 18 16:00:03 UTC 2026
-# demo change
+# Spring Petclinic API Gateway
 
+API gateway and frontend for the Spring Petclinic microservices platform.
+
+Runs on port `8080`. Routes all inbound traffic to downstream services via Spring Cloud Gateway.
+Built with Spring Boot 4.0.6 and deployed to ARM64 (Graviton) EKS nodes.
+Uses Netty (reactive) — no Tomcat dependency.
