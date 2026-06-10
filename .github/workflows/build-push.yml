@@ -18,6 +18,14 @@ name: CI - Build and Push
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_rebuild_all:
+        description: "Rebuild all 8 services regardless of file changes (use after ECR wipe)"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
 
 permissions:
   id-token: write
@@ -63,15 +71,25 @@ jobs:
       - name: Build service matrix from changed services
         id: build-matrix
         run: |
-          services=()
-          [ "${{ steps.filter.outputs.config-server }}"     = "true" ] && services+=("config-server")
-          [ "${{ steps.filter.outputs.discovery-server }}"  = "true" ] && services+=("discovery-server")
-          [ "${{ steps.filter.outputs.api-gateway }}"       = "true" ] && services+=("api-gateway")
-          [ "${{ steps.filter.outputs.customers-service }}" = "true" ] && services+=("customers-service")
-          [ "${{ steps.filter.outputs.visits-service }}"    = "true" ] && services+=("visits-service")
-          [ "${{ steps.filter.outputs.vets-service }}"      = "true" ] && services+=("vets-service")
-          [ "${{ steps.filter.outputs.genai-service }}"     = "true" ] && services+=("genai-service")
-          [ "${{ steps.filter.outputs.admin-server }}"      = "true" ] && services+=("admin-server")
+          # workflow_dispatch with force_rebuild_all=true (or any manual trigger):
+          # build all 8 services regardless of file changes. This is the standard
+          # way to repopulate ECR after a destroy/rebuild cycle.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
+             [ "${{ github.event.inputs.force_rebuild_all }}" = "true" ]; then
+            echo "Force rebuild all — triggered manually."
+            services=(config-server discovery-server api-gateway customers-service \
+                      visits-service vets-service genai-service admin-server)
+          else
+            services=()
+            [ "${{ steps.filter.outputs.config-server }}"     = "true" ] && services+=("config-server")
+            [ "${{ steps.filter.outputs.discovery-server }}"  = "true" ] && services+=("discovery-server")
+            [ "${{ steps.filter.outputs.api-gateway }}"       = "true" ] && services+=("api-gateway")
+            [ "${{ steps.filter.outputs.customers-service }}" = "true" ] && services+=("customers-service")
+            [ "${{ steps.filter.outputs.visits-service }}"    = "true" ] && services+=("visits-service")
+            [ "${{ steps.filter.outputs.vets-service }}"      = "true" ] && services+=("vets-service")
+            [ "${{ steps.filter.outputs.genai-service }}"     = "true" ] && services+=("genai-service")
+            [ "${{ steps.filter.outputs.admin-server }}"      = "true" ] && services+=("admin-server")
+          fi
 
           SHA="${GITHUB_SHA::7}"
           echo "sha=${SHA}" >> $GITHUB_OUTPUT
