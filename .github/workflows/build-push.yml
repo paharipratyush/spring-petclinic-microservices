@@ -221,7 +221,18 @@ jobs:
         run: docker push "${{ env.TARGET_IMAGE }}"
 
       - name: Push image to prod ECR
-        run: docker push "${{ env.TARGET_IMAGE_PROD }}"
+        run: |
+          # Prod ECR repos only exist when prod infra is provisioned.
+          # Skip gracefully if they do not exist (e.g. after prod destroy).
+          if aws ecr describe-repositories \
+            --repository-names "petclinic-prod/${{ matrix.service }}" \
+            --region "${{ secrets.AWS_REGION }}" > /dev/null 2>&1; then
+            docker push "${{ env.TARGET_IMAGE_PROD }}"
+            echo "Pushed to prod ECR: ${{ env.TARGET_IMAGE_PROD }}"
+          else
+            echo "Prod ECR repo petclinic-prod/${{ matrix.service }} does not exist — skipping."
+            echo "Re-run CI after prod infrastructure is provisioned to populate prod ECR."
+          fi
 
       - name: Logout from ECR
         if: always()
